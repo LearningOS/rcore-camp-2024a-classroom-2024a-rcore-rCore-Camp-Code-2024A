@@ -14,10 +14,11 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::config::MAX_APP_NUM;
+use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
 use lazy_static::*;
+use crate::timer::get_time_ms;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
@@ -54,6 +55,9 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            task_start_time: get_time_ms(),
+            task_lastest_syscall_time: get_time_ms(),
+            task_syscall_trace: [0; MAX_SYSCALL_NUM],
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -137,6 +141,13 @@ impl TaskManager {
     }
 }
 
+    /// get current task control block
+    fn get_current_task_control_block(&self) -> *mut TaskControlBlock {
+        let mut inner = TASK_MANAGER.inner.exclusive_access();
+        // current task id
+        let current = inner.current_task;
+        &mut inner.tasks[current]
+    }
 /// Run the first task in task list.
 pub fn run_first_task() {
     TASK_MANAGER.run_first_task();
@@ -156,6 +167,19 @@ fn mark_current_suspended() {
 /// Change the status of current `Running` task into `Exited`.
 fn mark_current_exited() {
     TASK_MANAGER.mark_current_exited();
+}
+
+/// Get current task control block
+pub fn get_current_task_control_block() -> *mut TaskControlBlock {
+    TASK_MANAGER.get_current_task_control_block()
+}
+/// Update Task Info
+pub fn update_task_info(syscall_id: usize) {
+    let task_control_block = get_current_task_control_block();
+    unsafe {
+        (*task_control_block).task_lastest_syscall_time = get_time_ms();
+        (*task_control_block).task_syscall_trace[syscall_id] += 1;
+    }
 }
 
 /// Suspend the current 'Running' task and run the next task in task list.
