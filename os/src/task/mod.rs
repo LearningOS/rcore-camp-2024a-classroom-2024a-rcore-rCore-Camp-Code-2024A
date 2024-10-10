@@ -17,8 +17,8 @@ mod task;
 use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
-use lazy_static::*;
 use crate::timer::get_time_ms;
+use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
@@ -62,6 +62,7 @@ lazy_static! {
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
             task.task_status = TaskStatus::Ready;
+
         }
         TaskManager {
             num_app,
@@ -139,7 +140,6 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
-}
 
     /// get current task control block
     fn get_current_task_control_block(&self) -> *mut TaskControlBlock {
@@ -148,6 +148,8 @@ impl TaskManager {
         let current = inner.current_task;
         &mut inner.tasks[current]
     }
+}
+
 /// Run the first task in task list.
 pub fn run_first_task() {
     TASK_MANAGER.run_first_task();
@@ -173,6 +175,7 @@ fn mark_current_exited() {
 pub fn get_current_task_control_block() -> *mut TaskControlBlock {
     TASK_MANAGER.get_current_task_control_block()
 }
+
 /// Update Task Info
 pub fn update_task_info(syscall_id: usize) {
     let task_control_block = get_current_task_control_block();

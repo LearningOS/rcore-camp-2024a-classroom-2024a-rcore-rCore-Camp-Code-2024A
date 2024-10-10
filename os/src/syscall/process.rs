@@ -1,5 +1,6 @@
 //! Process management syscalls
 use core::fmt::{self, Display, Formatter};
+
 use crate::{
     config::MAX_SYSCALL_NUM,
     task::{
@@ -8,13 +9,6 @@ use crate::{
     },
     timer::get_time_us,
 };
-
-impl Display for TaskInfo {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        let address = self as *const TaskInfo;
-        write!(f, "TaskInfo(address={:p})", address)
-    }
-}
 
 #[repr(C)]
 #[derive(Debug)]
@@ -32,6 +26,13 @@ pub struct TaskInfo {
     syscall_times: [u32; MAX_SYSCALL_NUM],
     /// Total running time of task
     time: usize,
+}
+
+impl Display for TaskInfo {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        let address = self as *const TaskInfo;
+        write!(f, "TaskInfo(address={:p})", address)
+    }
 }
 
 /// task exits and submit an exit code
@@ -64,7 +65,10 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
 /// YOUR JOB: Finish sys_task_info to pass testcases
 pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
     trace!("kernel: sys_task_info");
+
+    // Current task
     let task_control_block = get_current_task_control_block();
+
     let task_info = TaskInfo {
         status: (unsafe { *task_control_block }).task_status,
         syscall_times: (unsafe { *task_control_block }).task_syscall_trace,
@@ -74,8 +78,10 @@ pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
             end - start
         },
     };
+
     unsafe {
         *ti = task_info;
     }
+
     0
 }
