@@ -59,10 +59,12 @@ lazy_static! {
             task_lastest_syscall_time: get_time_ms(),
             task_syscall_trace: [0; MAX_SYSCALL_NUM],
         }; MAX_APP_NUM];
+
+        println!("{}", get_time_ms());
+
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
             task.task_status = TaskStatus::Ready;
-
         }
         TaskManager {
             num_app,
@@ -148,6 +150,14 @@ impl TaskManager {
         let current = inner.current_task;
         &mut inner.tasks[current]
     }
+
+    fn update_task_info(&self, syscall_id: usize) {
+        let mut inner = TASK_MANAGER.inner.exclusive_access();
+        let current = inner.current_task;
+
+        inner.tasks[current].task_lastest_syscall_time = get_time_ms();
+        inner.tasks[current].task_syscall_trace[syscall_id] += 1;
+    }
 }
 
 /// Run the first task in task list.
@@ -171,20 +181,6 @@ fn mark_current_exited() {
     TASK_MANAGER.mark_current_exited();
 }
 
-/// Get current task control block
-pub fn get_current_task_control_block() -> *mut TaskControlBlock {
-    TASK_MANAGER.get_current_task_control_block()
-}
-
-/// Update Task Info
-pub fn update_task_info(syscall_id: usize) {
-    let task_control_block = get_current_task_control_block();
-    unsafe {
-        (*task_control_block).task_lastest_syscall_time = get_time_ms();
-        (*task_control_block).task_syscall_trace[syscall_id] += 1;
-    }
-}
-
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {
     mark_current_suspended();
@@ -195,4 +191,14 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// Get current task control block
+pub fn get_current_task_control_block() -> *mut TaskControlBlock {
+    TASK_MANAGER.get_current_task_control_block()
+}
+
+/// Update Task Info
+pub fn update_task_info(syscall_id: usize) {
+    TASK_MANAGER.update_task_info(syscall_id);
 }

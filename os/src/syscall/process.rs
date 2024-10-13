@@ -1,12 +1,7 @@
 //! Process management syscalls
-use core::fmt::{self, Display, Formatter};
-
 use crate::{
     config::MAX_SYSCALL_NUM,
-    task::{
-        exit_current_and_run_next, get_current_task_control_block, suspend_current_and_run_next,
-        TaskStatus,
-    },
+    task::{exit_current_and_run_next, get_current_task_control_block, suspend_current_and_run_next, TaskStatus},
     timer::get_time_us,
 };
 
@@ -26,13 +21,6 @@ pub struct TaskInfo {
     syscall_times: [u32; MAX_SYSCALL_NUM],
     /// Total running time of task
     time: usize,
-}
-
-impl Display for TaskInfo {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        let address = self as *const TaskInfo;
-        write!(f, "TaskInfo(address={:p})", address)
-    }
 }
 
 /// task exits and submit an exit code
