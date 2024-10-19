@@ -1,6 +1,6 @@
 //! Implementation of [`PageTableEntry`] and [`PageTable`].
 
-use super::{frame_alloc, FrameTracker, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
+use super::{frame_alloc, FrameTracker, PhysAddr, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::*;
@@ -170,4 +170,41 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
         start = end_va.into();
     }
     v
+}
+
+/// Translate TimeVal pointer
+pub fn translated_ptr(token: usize, ptr: usize) -> usize {
+    let page_table = PageTable::from_token(token);
+    let start = ptr;
+    let start_va = VirtAddr::from(start);
+    let vpn = start_va.floor();
+    let ppn = page_table.translate(vpn).unwrap().ppn();
+    let addr: PhysAddr = ppn.into();
+    addr.0 + start_va.page_offset()
+}
+
+
+// What if [`TimeVal`] is splitted by two pages ?
+// http://www.wowotech.net/memory_management/454.html 参考linux中copy_to_user的签名和作用
+/// Copy a buffer from src(kernel heap) to dst(user space) with length len
+pub fn copy_to_user(token: usize, dst: *mut u8, src: *const u8, len: usize) {
+    let mut page_table = PageTable::from_token(token);
+    let mut start = dst as usize;
+    let start_src = src as usize;
+    let end = start + len;
+    let mut src = src as usize;
+    while start < end {
+        let start_va = VirtAddr::from(start);
+        let mut vpn = start_va.floor();
+        let ppn = page_table.find_pte_create(vpn).unwrap().ppn();
+        vpn.step();
+        let mut end_va: VirtAddr = vpn.into();
+        end_va = end_va.min(VirtAddr::from(end));
+        let dst = &mut ppn.get_bytes_array()[start_va.page_offset()..end_va.page_offset()];
+        while src < start_src + dst.len() {
+            dst[src - start_src] = unsafe { *(src as *const u8) };
+            src += 1;
+        }
+        start = end_va.into();
+    }
 }

@@ -17,6 +17,9 @@ mod task;
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
+use crate::mm::MapPermission;
+use crate::syscall::TaskInfo;
+use crate::timer::get_time_us;
 use alloc::vec::Vec;
 use lazy_static::*;
 use switch::__switch;
@@ -79,6 +82,7 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
+        next_task.first_time = get_time_us();
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
@@ -141,6 +145,9 @@ impl TaskManager {
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
             inner.current_task = next;
+            if inner.tasks[next].first_time == 0 {
+                inner.tasks[next].first_time = get_time_us();
+            }
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
             drop(inner);
@@ -201,4 +208,42 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Get the current task's TCB
+pub fn get_curr_task_status() -> TaskInfo {
+    let inner = TASK_MANAGER.inner.exclusive_access();
+    let us_now = get_time_us();
+    let tcb = &inner.tasks[inner.current_task];
+    TaskInfo {
+        status: TaskStatus::Running,
+        syscall_times: tcb.syscall_times.clone(),
+        time: (us_now - tcb.first_time) / 1000,
+    }
+}
+/// Add syscall times for current task
+pub fn add_syscall_times(syscall_id: usize) {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current_task = inner.current_task;
+    inner.tasks[current_task].syscall_times[syscall_id] += 1;
+}
+
+/// mmap
+pub fn mmap(start: usize, end: usize, perm: MapPermission) -> isize {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current_task = inner.current_task;
+    inner.tasks[current_task].memory_set.insert_framed_area_check(
+        start.into(),
+        end.into(),
+        perm,
+    )
+}
+///munmap
+pub fn munmap(start: usize, end: usize) -> isize {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current_task = inner.current_task;
+    inner.tasks[current_task].memory_set.remove_framed_area(
+        start.into(),
+        end.into(),
+    )
 }

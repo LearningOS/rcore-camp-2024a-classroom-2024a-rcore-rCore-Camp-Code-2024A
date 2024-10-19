@@ -63,6 +63,50 @@ impl MemorySet {
             None,
         );
     }
+    fn check(&self, start_va: VirtAddr, end_va: VirtAddr) -> bool {
+        let vpnrange = VPNRange::new(start_va.floor(), end_va.ceil());
+        for area in self.areas.iter() {
+            if area.vpn_range.overlap_with(&vpnrange) {
+                info!("mmap: {}~{} conflict with existed area {}~{}", vpnrange.get_start().0, vpnrange.get_end().0, area.vpn_range.get_start().0, area.vpn_range.get_end().0);
+                return false;
+            }
+        }
+        true
+    }
+    /// Check if no conflict then insert
+    pub fn insert_framed_area_check(
+        &mut self,
+        start_va: VirtAddr,
+        end_va: VirtAddr,
+        permission: MapPermission,
+    ) -> isize {
+        info!("mmap: {}-{}", start_va.0, end_va.0);
+        if !self.check(start_va, end_va) {
+            return -1;
+        }
+        self.push(
+            MapArea::new(start_va, end_va, MapType::Framed, permission),
+            None,
+        );
+        0
+    }
+    /// Remove a framed area
+    pub fn remove_framed_area(&mut self, start_va: VirtAddr, end_va: VirtAddr) -> isize {
+        let vpnrange = VPNRange::new(start_va.floor(), end_va.ceil());
+        let mut index = self.areas.len();
+        for (i, area) in self.areas.iter().enumerate() {
+            if area.vpn_range.get_start() == vpnrange.get_start() && area.vpn_range.get_end() == vpnrange.get_end() {
+                index = i;
+                break;
+            }
+        }
+        if self.areas.len() == index {
+            return -1;
+        }
+        self.areas[index].unmap(&mut self.page_table);
+        self.areas.remove(index);
+        0
+    }
     fn push(&mut self, mut map_area: MapArea, data: Option<&[u8]>) {
         map_area.map(&mut self.page_table);
         if let Some(data) = data {
@@ -280,6 +324,7 @@ impl MapArea {
     ) -> Self {
         let start_vpn: VirtPageNum = start_va.floor();
         let end_vpn: VirtPageNum = end_va.ceil();
+        info!("new maparea: {:?}~{:?}", start_vpn, end_vpn);
         Self {
             vpn_range: VPNRange::new(start_vpn, end_vpn),
             data_frames: BTreeMap::new(),
