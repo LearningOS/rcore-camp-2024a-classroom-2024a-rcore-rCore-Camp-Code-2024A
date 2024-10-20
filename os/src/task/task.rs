@@ -29,14 +29,14 @@ pub struct TaskControlBlock {
     /// Program break
     pub program_brk: usize,
 
-    /// First time scheduling
-    pub first_time: usize,
+    /// The start time of task
+    pub task_start_time: usize,
 
-    /// Syscall times
-    pub syscall_times: [u32; MAX_SYSCALL_NUM],
+    /// The end time of task syscall
+    pub task_lastest_syscall_time: usize,
 
-    /// Program break
-    pub time: usize,
+    /// The numbers of syscall called by task
+    pub task_syscall_trace: [u32; MAX_SYSCALL_NUM],
 }
 
 impl TaskControlBlock {
