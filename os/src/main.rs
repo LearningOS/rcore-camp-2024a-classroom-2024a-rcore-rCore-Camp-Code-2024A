@@ -107,7 +107,9 @@ pub fn rust_main() -> ! {
     task::add_initproc();
     println!("after initproc!");
     trap::init();
+    // println!("DEBUG in main.rs: start `trap::enable_timer_interrupt()`");
     trap::enable_timer_interrupt();
+    // println!("DEBUG in main.rs:  start `timer::set_next_trigger()`");
     timer::set_next_trigger();
     loader::list_apps();
     task::run_tasks();

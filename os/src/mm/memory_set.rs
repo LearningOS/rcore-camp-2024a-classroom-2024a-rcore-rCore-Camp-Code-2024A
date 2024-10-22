@@ -300,6 +300,43 @@ impl MemorySet {
             false
         }
     }
+
+    /// mmap from start_va to end_va
+    pub fn mmap(&mut self, start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) -> isize {
+        let st_page = start_va.floor();
+        let ed_page = end_va.ceil();
+        if VirtAddr::from(st_page) != start_va {
+            return -1;
+        }
+
+        for vpn in VPNRange::new(st_page, ed_page) {
+            if self.page_table.is_valid(vpn) {
+                return -1;
+            } 
+        }
+
+        let map_area = 
+            MapArea::new(start_va, end_va, MapType::Framed, permission);
+
+        self.push(map_area, None);
+        0
+    }
+
+    /// munmap from start_va to end_va
+    pub fn munmap(&mut self, start_va: VirtAddr, end_va: VirtAddr) -> isize {
+        let st_page = start_va.floor();
+        let ed_page = end_va.ceil();
+        for vpn in VPNRange::new(st_page, ed_page) {
+            // the page we want to map has been used, can't mmap!
+            if self.page_table.is_valid(vpn) {
+                self.page_table.unmap(vpn);
+            } else {
+                return -1
+            }
+        }
+        
+        0
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {

@@ -1,8 +1,9 @@
 //! Types related to task management & Functions for completely changing TCB
+use super::info::TaskInfo;
 use super::TaskContext;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 use crate::config::TRAP_CONTEXT_BASE;
-use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
+use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE, MapPermission};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
@@ -68,6 +69,9 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// Infomation about the task
+    pub task_info: TaskInfo,
 }
 
 impl TaskControlBlockInner {
@@ -82,6 +86,9 @@ impl TaskControlBlockInner {
     fn get_status(&self) -> TaskStatus {
         self.task_status
     }
+    pub fn get_task_info(&self) -> TaskInfo {
+        self.task_info
+    }
     pub fn is_zombie(&self) -> bool {
         self.get_status() == TaskStatus::Zombie
     }
@@ -94,6 +101,7 @@ impl TaskControlBlock {
     pub fn new(elf_data: &[u8]) -> Self {
         // memory_set with elf program headers/trampoline/trap context/user stack
         let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
+        // println!("for app:{}, user_sp:{}, entry_poiny:{}", app_id, user_sp, entry_point);
         let trap_cx_ppn = memory_set
             .translate(VirtAddr::from(TRAP_CONTEXT_BASE).into())
             .unwrap()
@@ -118,6 +126,7 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    task_info: TaskInfo::init(),
                 })
             },
         };
@@ -191,6 +200,7 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    task_info: TaskInfo::init(),
                 })
             },
         });
@@ -209,6 +219,12 @@ impl TaskControlBlock {
     /// get pid of process
     pub fn getpid(&self) -> usize {
         self.pid.0
+    }
+
+    /// do the update when using syscall in the current task
+    pub fn syscalled(&self, syscall_id: usize) {
+        let mut inner = self.inner_exclusive_access();
+        inner.task_info.syscalled(syscall_id);
     }
 
     /// change the location of the program break. return None if failed.
@@ -236,6 +252,52 @@ impl TaskControlBlock {
             None
         }
     }
+
+    /// mmap from start to (start + len) with permission port
+    pub fn mmap(&self, start: usize, len: usize, port: usize ) -> isize {
+        // println!("DEBUG in task::TaskControlBlock.mmap");
+        // illegal or meaningless port
+        let mut task_inner = self.inner.exclusive_access();
+        if (port & ((1 << 3) -1))  == 0 || (port & !((1 << 3) -1))  != 0 || len == 0{
+            return -1;
+        }
+        let perm = get_mmap_permission(port);
+        
+        task_inner.memory_set
+            .mmap(VirtAddr(start), VirtAddr(start + len), perm)
+    }
+
+    /// munmap from start to (start + len) 
+    pub fn munmap(&self, start: usize, len: usize) -> isize {
+        let mut task_inner = self.inner.exclusive_access();
+
+        task_inner.memory_set
+            .munmap(VirtAddr(start), VirtAddr(start + len))
+    }
+
+    /// get the physical page of the virtual address(parameter) in form of u8 array
+    pub fn get_physical_page(&self, va: usize) -> &'static mut [u8] {
+        let task_inner = self.inner.exclusive_access();
+
+        let pte = task_inner.memory_set
+                                            .translate(VirtAddr(va).floor()).unwrap();
+        let ppn = pte.ppn();
+        ppn.get_bytes_array()
+    }
+}
+
+fn get_mmap_permission(port: usize) -> MapPermission {
+    let mut perm = MapPermission::U;
+    if port & (1 << 0) != 0 {
+        perm |= MapPermission::R;
+    } 
+    if port & (1 << 1) != 0 {
+        perm |= MapPermission::W;
+    }
+    if port & (1 << 2) != 0 {
+        perm |= MapPermission::X;
+    }
+    perm
 }
 
 #[derive(Copy, Clone, PartialEq)]

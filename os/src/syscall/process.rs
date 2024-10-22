@@ -2,13 +2,15 @@
 use alloc::sync::Arc;
 
 use crate::{
-    config::MAX_SYSCALL_NUM,
     loader::get_app_data_by_name,
-    mm::{translated_refmut, translated_str},
+    mm::{translated_str, copy_to_user},
     task::{
-        add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next, TaskStatus,
+        add_task, current_task, current_user_token,
     },
+    task::{
+        exit_current_and_run_next, suspend_current_and_run_next, TaskInfoToReturn, mmap_current_task ,
+        munmap_current_task, 
+    }, timer::get_time_us
 };
 
 #[repr(C)]
@@ -16,17 +18,6 @@ use crate::{
 pub struct TimeVal {
     pub sec: usize,
     pub usec: usize,
-}
-
-/// Task information
-#[allow(dead_code)]
-pub struct TaskInfo {
-    /// Task status in it's life cycle
-    status: TaskStatus,
-    /// The numbers of syscall called by task
-    syscall_times: [u32; MAX_SYSCALL_NUM],
-    /// Total running time of task
-    time: usize,
 }
 
 /// task exits and submit an exit code
@@ -106,7 +97,8 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
         // ++++ temporarily access child PCB exclusively
         let exit_code = child.inner_exclusive_access().exit_code;
         // ++++ release child PCB
-        *translated_refmut(inner.memory_set.token(), exit_code_ptr) = exit_code;
+
+        copy_to_user(inner.memory_set.token(), exit_code_ptr, exit_code);
         found_pid as isize
     } else {
         -2
@@ -114,44 +106,14 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
     // ---- release current PCB automatically
 }
 
-/// YOUR JOB: get time with second and microsecond
-/// HINT: You might reimplement it with virtual memory management.
-/// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
-}
-
-/// YOUR JOB: Finish sys_task_info to pass testcases
-/// HINT: You might reimplement it with virtual memory management.
-/// HINT: What if [`TaskInfo`] is splitted by two pages ?
-pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_task_info NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
-}
-
-/// YOUR JOB: Implement mmap.
+/// syscall mmap
 pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    mmap_current_task(_start, _len, _port)
 }
 
-/// YOUR JOB: Implement munmap.
+/// syscall munmap
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    munmap_current_task(_start, _len)
 }
 
 /// change data segment size
@@ -181,4 +143,37 @@ pub fn sys_set_priority(_prio: isize) -> isize {
         current_task().unwrap().pid.0
     );
     -1
+}
+
+/// get time with second and microsecond
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
+    trace!("kernel: sys_get_time");
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+
+    let us = get_time_us();
+    let time_val = TimeVal {
+        sec: us / 1_000_000,
+        usec: us % 1_000_000,
+    };
+    copy_to_user(inner.memory_set.token(), ts, time_val);
+    0
+}
+
+
+pub fn sys_task_info(_ti: *mut TaskInfoToReturn) -> isize {
+    trace!("kernel: sys_task_info");
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    // let task_info = inner.get_task_info();
+    // println!("task: {}, 169 times: {}", task.pid.0, task_info.syscall_times[169]);
+
+    let task_info = inner.get_task_info();
+    let task_info_to_ret = TaskInfoToReturn {
+        status: task_info.status,
+        syscall_times: task_info.syscall_times,
+        time: task_info.time,
+    };
+    copy_to_user(inner.memory_set.token(), _ti, task_info_to_ret);
+    0
 }

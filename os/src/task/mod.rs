@@ -15,6 +15,7 @@
 //! might not be what you expect.
 mod context;
 mod id;
+mod info;
 mod manager;
 mod processor;
 mod switch;
@@ -25,12 +26,14 @@ use crate::loader::get_app_data_by_name;
 use alloc::sync::Arc;
 use lazy_static::*;
 pub use manager::{fetch_task, TaskManager};
+use processor::PROCESSOR;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
+pub use info::{TaskInfo, TaskInfoToReturn};
 pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
-pub use manager::add_task;
+pub use manager::{add_task, TASK_MANAGER};
 pub use processor::{
     current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
     Processor,
@@ -114,4 +117,41 @@ lazy_static! {
 ///Add init process to the manager
 pub fn add_initproc() {
     add_task(INITPROC.clone());
+}
+
+/// get physical page of current virtual address
+pub fn current_pp_with_va(va: usize) -> &'static mut [u8]{
+    let processor = PROCESSOR.exclusive_access();
+    let current_task= processor.current().unwrap();
+    current_task.get_physical_page(va)
+
+}
+
+/// change the brk of current program
+pub fn change_program_brk(size: i32) -> Option<usize> {
+    let processor = PROCESSOR.exclusive_access();
+    let current_task= processor.current().unwrap();
+    current_task.change_program_brk(size)
+}
+
+/// do the update to the current task
+pub fn current_task_syscalled(syscall_id: usize) {
+    let processor = PROCESSOR.exclusive_access();
+    let current_task= processor.current().unwrap();
+    current_task.syscalled(syscall_id);
+}
+
+/// mmap for current task from virtuall address `start`
+/// with length of `len` and give its level of `prot`
+pub fn mmap_current_task( start: usize, len: usize, port: usize ) -> isize {
+    let processor = PROCESSOR.exclusive_access();
+    let current_task= processor.current().unwrap();
+    current_task.mmap(start, len, port)
+}
+
+/// munmap from start to (start + len) 
+pub fn munmap_current_task(start: usize, len: usize) -> isize {
+    let processor = PROCESSOR.exclusive_access();
+    let current_task= processor.current().unwrap();
+    current_task.munmap(start, len)
 }
