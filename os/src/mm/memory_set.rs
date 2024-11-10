@@ -47,6 +47,13 @@ impl MemorySet {
             areas: Vec::new(),
         }
     }
+    /// Check if memory range include allocated memory
+    pub fn include_allocated(&self, start_address: VirtAddr, end_address: VirtAddr) -> bool {
+        self.areas.iter().any(|area| {
+            area.vpn_range.get_end() > start_address.floor()
+                && area.vpn_range.get_start() < end_address.ceil()
+        })
+    }
     /// Get the page table token
     pub fn token(&self) -> usize {
         self.page_table.token()
@@ -62,6 +69,20 @@ impl MemorySet {
             MapArea::new(start_va, end_va, MapType::Framed, permission),
             None,
         );
+    }
+    /// free a framed area
+    pub fn free_framed_area(&mut self, start_address: VirtAddr, end_address: VirtAddr) {
+        let virtual_page_start = start_address.floor();
+        let virtual_page_end = end_address.ceil();
+        let index = self.areas.iter_mut().position(|map| {
+            map.vpn_range.get_start() == virtual_page_start
+                && map.vpn_range.get_end() == virtual_page_end
+        });
+
+        if let Some(index) = index {
+            self.areas[index].unmap(&mut self.page_table);
+            self.areas.remove(index);
+        }
     }
     fn push(&mut self, mut map_area: MapArea, data: Option<&[u8]>) {
         map_area.map(&mut self.page_table);
