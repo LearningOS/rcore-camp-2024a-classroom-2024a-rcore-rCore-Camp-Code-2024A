@@ -67,6 +67,27 @@ pub fn sys_exec(path: *const u8) -> isize {
     }
 }
 
+/// YOUR JOB: Implement spawn.
+/// HINT: fork + exec =/= spawn
+pub fn sys_spawn(_path: *const u8) -> isize {
+    trace!("kernel:pid[{}] sys_exec", current_task().unwrap().pid.0);
+    let token = current_user_token();
+    let path = translated_str(token, _path);
+
+    if let Some(data) = get_app_data_by_name(path.as_str()) {
+        let task = current_task().unwrap();
+        let new_task= task.spawn(data);
+        let new_pid = new_task.pid.0;
+        let trap_cx = new_task.inner_exclusive_access().get_trap_cx();
+        trap_cx.x[10] = 0;
+        add_task(new_task);
+
+        new_pid as isize
+    } else {
+        -1
+    }
+}
+
 /// If there is not a child process whose pid is same as given, return -1.
 /// Else if there is a child process but it is still running, return -2.
 pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
@@ -74,8 +95,11 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
     let task = current_task().unwrap();
     // find a child process
 
+
+    // println!("break 0");
     // ---- access current PCB exclusively
     let mut inner = task.inner_exclusive_access();
+    // println!("break 1");
     if !inner
         .children
         .iter()
@@ -84,12 +108,15 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
         return -1;
         // ---- release current PCB
     }
+    // println!("break 2");
     let pair = inner.children.iter().enumerate().find(|(_, p)| {
         // ++++ temporarily access child PCB exclusively
         p.inner_exclusive_access().is_zombie() && (pid == -1 || pid as usize == p.getpid())
         // ++++ release child PCB
     });
+    // println!("break 3");
     if let Some((idx, _)) = pair {
+        // println!("break 4");
         let child = inner.children.remove(idx);
         // confirm that child will be deallocated after being removed from children list
         assert_eq!(Arc::strong_count(&child), 1);
@@ -101,6 +128,7 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
         copy_to_user(inner.memory_set.token(), exit_code_ptr, exit_code);
         found_pid as isize
     } else {
+        // println!("break 5");
         -2
     }
     // ---- release current PCB automatically
@@ -126,30 +154,23 @@ pub fn sys_sbrk(size: i32) -> isize {
     }
 }
 
-/// YOUR JOB: Implement spawn.
-/// HINT: fork + exec =/= spawn
-pub fn sys_spawn(_path: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
-}
-
 // YOUR JOB: Set task priority.
 pub fn sys_set_priority(_prio: isize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    if _prio >= 2 {
+        let task = current_task().unwrap();
+        let mut inner = task.inner_exclusive_access();
+        inner.set_priority(_prio);
+        _prio
+    } else {
+        -1
+    }
 }
 
 /// get time with second and microsecond
 pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
-    trace!("kernel: sys_get_time");
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
+    trace!("kernel: sys_get_time, pid: {}", task.pid.0);
 
     let us = get_time_us();
     let time_val = TimeVal {
