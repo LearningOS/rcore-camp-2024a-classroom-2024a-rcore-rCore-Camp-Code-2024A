@@ -125,17 +125,20 @@ pub fn link(old: &Inode) {
 pub fn unlink(old: &Inode) -> bool{
     let mut link_vec = LINK_VEC.exclusive_access();  // 获取 LINK_VEC 的可变引用
     let mut find = false;
-    for (inode, count) in link_vec.iter_mut() {
-        if inode.get_inode_num() == old.get_inode_num() {
-            // 如果找到，增加对应的 u32 值
+    for i in 0..link_vec.len() {
+        if link_vec[i].0.get_inode_num() == old.get_inode_num() {
+            let (_, count) = &mut link_vec[i];
             *count -= 1;
+            // 如果引用计数为 0，移除该 inode
+            if *count == 1 {
+                link_vec.remove(i);  // 移除该元素
+            }
             find = true;
             break;
         }
     }
     //println!("find:{}",find);
     find
-
 }
 
 /// Open a file
