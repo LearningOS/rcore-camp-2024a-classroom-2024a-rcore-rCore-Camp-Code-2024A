@@ -122,16 +122,20 @@ pub fn link(old: &Inode) {
         link_list.push(((*old).clone(), 2));
     }
 }
-pub fn unlink(old: &Inode){
+pub fn unlink(old: &Inode) -> bool{
     let mut link_vec = LINK_VEC.exclusive_access();  // 获取 LINK_VEC 的可变引用
-    
+    let mut find = false;
     for (inode, count) in link_vec.iter_mut() {
         if inode.get_inode_num() == old.get_inode_num() {
             // 如果找到，增加对应的 u32 值
             *count -= 1;
+            find = true;
             break;
         }
     }
+    //println!("find:{}",find);
+    find
+
 }
 
 /// Open a file
@@ -186,8 +190,8 @@ pub fn create_link(old_name: &str, new_name: &str) -> isize{
                         if let Some(new_mut) = Arc::get_mut(&mut new) {
                             old_mut.build_link();
                             new_mut.build_link();
-                            println!("old.link:{}",old.get_link());
-                            println!("new.link:{}",new.get_link());
+                            //println!("old.link:{}",old.get_link());
+                            //println!("new.link:{}",new.get_link());
                         } else {
                             return -1;
                         }
@@ -208,13 +212,15 @@ pub fn destroy_link(name: &str) -> isize{
     //let new_inode = ROOT_INODE.find(new_name);
     match find_inode {
         Some(mut inode) => {
-            unlink(&inode);
+            let find = unlink(&inode);
             if let Some(mut_inode) = Arc::get_mut(&mut inode) {
                 mut_inode.destroy_link();
-                println!("inode.link:{}",inode.get_link());
+                //println!("inode.link:{}",inode.get_link());
             }
-            ROOT_INODE.remove_name_from_dir(name);
-            inode.clear();
+            
+            if !find {
+                ROOT_INODE.remove_name_from_dir(name);
+            }
         },
         None => return -1,
     }
@@ -280,8 +286,8 @@ impl File for OSInode {
         let inode_id = inner.inode.get_inode_num();
 
         let mut link_num: u32 = 1;
-        print_link_vec();
-        println!("inner.inode.get_link():{}",inner.inode.get_link());
+        //print_link_vec();
+        //println!("inner.inode.get_link():{}",inner.inode.get_link());
         /* 
         if !inner.inode.get_link() {
             link_num = 1;

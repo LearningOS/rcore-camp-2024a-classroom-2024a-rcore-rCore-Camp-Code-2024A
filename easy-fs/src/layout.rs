@@ -398,6 +398,14 @@ pub struct DirEntry {
 pub const DIRENT_SZ: usize = 32;
 
 impl DirEntry {
+    /// 清空目录项的内容
+    pub fn clear(&mut self) {
+        // 清空文件名（将 name 字段的所有字节置为 0）
+        self.name = [0; NAME_LENGTH_LIMIT + 1];
+        
+        // 清空 inode_id
+        self.inode_id = 0;
+    }
     /// Create an empty directory entry
     pub fn empty() -> Self {
         Self {
