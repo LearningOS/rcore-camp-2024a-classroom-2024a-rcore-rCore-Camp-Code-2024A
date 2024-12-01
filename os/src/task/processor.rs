@@ -11,6 +11,8 @@ use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::sync::Arc;
 use lazy_static::*;
+use crate::timer::get_time_ms;
+use crate::mm::MapPermission;
 
 /// Processor management structure
 pub struct Processor {
@@ -47,6 +49,7 @@ impl Processor {
 }
 
 lazy_static! {
+    ///
     pub static ref PROCESSOR: UPSafeCell<Processor> = unsafe { UPSafeCell::new(Processor::new()) };
 }
 
@@ -59,6 +62,7 @@ pub fn run_tasks() {
             let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();
             // access coming task TCB exclusively
             let mut task_inner = task.inner_exclusive_access();
+            task_inner.stride += task_inner.pass;
             let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;
             task_inner.task_status = TaskStatus::Running;
             // release coming task_inner manually
@@ -74,6 +78,38 @@ pub fn run_tasks() {
             warn!("no tasks available in run_tasks");
         }
     }
+}
+
+/// Update task info
+pub fn update_task_info(syscall_id: usize) {
+    let current_task_control_block = current_task().unwrap();
+    let mut current_task = current_task_control_block.inner_exclusive_access();
+
+    current_task.start_time = get_time_ms();
+    current_task.task_syscall_trace[syscall_id] += 1;
+}
+
+///
+pub fn syscall_mmap(start:usize,len:usize,permission:MapPermission) -> isize{
+
+    let current_task_control_block = current_task().unwrap();
+    let mut current_task = current_task_control_block.inner_exclusive_access();
+
+    let end = start + len;
+    if current_task.memory_set.overlaps_with_mapped_area(start.into(), end.into()){
+        return -1;
+    }
+    current_task.memory_set.insert_framed_area(start.into(), end.into(), permission);
+    0
+}
+///
+pub fn syscall_munmap(start:usize,len:usize) -> isize{
+    let current_task_control_block = current_task().unwrap();
+    let mut current_task = current_task_control_block.inner_exclusive_access();
+
+    let end = start + len;
+    current_task.memory_set.del_framed_area(start.into(), end.into());
+    0
 }
 
 /// Get current task through take, leaving a None in its place

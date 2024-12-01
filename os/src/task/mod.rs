@@ -16,7 +16,7 @@
 mod context;
 mod id;
 mod manager;
-mod processor;
+pub mod processor;
 mod switch;
 #[allow(clippy::module_inception)]
 #[allow(rustdoc::private_intra_doc_links)]
@@ -34,7 +34,7 @@ pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 pub use manager::add_task;
 pub use processor::{
     current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
-    Processor,
+    Processor,update_task_info,syscall_mmap,syscall_munmap,
 };
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {

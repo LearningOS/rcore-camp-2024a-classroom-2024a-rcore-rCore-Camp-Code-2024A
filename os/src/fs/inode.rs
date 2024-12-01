@@ -4,6 +4,7 @@
 //!
 //! `UPSafeCell<OSInodeInner>` -> `OSInode`: for static `ROOT_INODE`,we
 //! need to wrap `OSInodeInner` into `UPSafeCell`
+
 use super::File;
 use crate::drivers::BLOCK_DEVICE;
 use crate::mm::UserBuffer;
@@ -13,6 +14,7 @@ use alloc::vec::Vec;
 use bitflags::*;
 use easy_fs::{EasyFileSystem, Inode};
 use lazy_static::*;
+use crate::fs::{Stat,StatMode};
 
 /// inode in memory
 /// A wrapper around a filesystem inode
@@ -59,6 +61,9 @@ lazy_static! {
         let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
         Arc::new(EasyFileSystem::root_inode(&efs))
     };
+    pub static ref LINK_VEC: UPSafeCell<Vec<(Inode, u32)>> = unsafe {
+        UPSafeCell::new(Vec::new())
+    };
 }
 
 /// List all apps in the root directory
@@ -100,6 +105,35 @@ impl OpenFlags {
     }
 }
 
+pub fn link(old: &Inode) {
+    let mut link_list = LINK_VEC.exclusive_access();
+    // 查找是否存在旧的 Inode
+    let mut found = false;
+    for (inode, count) in link_list.iter_mut() {
+        if inode.get_inode_num() == old.get_inode_num() {
+            // 如果找到，增加对应的 u32 值
+            *count += 1;
+            found = true;
+            break;
+        }
+    }
+    // 如果没有找到，创建新的 Inode 和 u32 元组，插入 vec
+    if !found {
+        link_list.push(((*old).clone(), 2));
+    }
+}
+pub fn unlink(old: &Inode){
+    let mut link_vec = LINK_VEC.exclusive_access();  // 获取 LINK_VEC 的可变引用
+    
+    for (inode, count) in link_vec.iter_mut() {
+        if inode.get_inode_num() == old.get_inode_num() {
+            // 如果找到，增加对应的 u32 值
+            *count -= 1;
+            break;
+        }
+    }
+}
+
 /// Open a file
 pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
     let (readable, writable) = flags.read_write();
@@ -123,6 +157,92 @@ pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
         })
     }
 }
+
+/*
+///
+pub fn delete_file(name: &str) -> isize{
+    if let Some(inode) = ROOT_INODE.find(name) {
+        // clear size
+        inode.clear();
+    } else {
+
+    }
+    0
+}
+ */
+///
+pub fn create_link(old_name: &str, new_name: &str) -> isize{
+    let old_inode = ROOT_INODE.find(old_name);
+    //let new_inode = ROOT_INODE.find(new_name);
+    match old_inode {
+        Some(mut old) => {
+            let old_inode_id = old.get_inode_num();
+            let new_inode = ROOT_INODE.create_link(new_name,old_inode_id);
+            match new_inode {
+                Some(mut new) =>{
+                    link(&old);
+                    // 尝试通过 Arc::get_mut() 获取可变引用
+                    if let Some(old_mut) = Arc::get_mut(&mut old) {
+                        if let Some(new_mut) = Arc::get_mut(&mut new) {
+                            old_mut.build_link();
+                            new_mut.build_link();
+                            println!("old.link:{}",old.get_link());
+                            println!("new.link:{}",new.get_link());
+                        } else {
+                            return -1;
+                        }
+                    }
+                },
+                None => return -1,
+            }
+            
+        },
+        None => return -1,
+    }
+    0
+}
+
+///
+pub fn destroy_link(name: &str) -> isize{
+    let find_inode = ROOT_INODE.find(name);
+    //let new_inode = ROOT_INODE.find(new_name);
+    match find_inode {
+        Some(mut inode) => {
+            unlink(&inode);
+            if let Some(mut_inode) = Arc::get_mut(&mut inode) {
+                mut_inode.destroy_link();
+                println!("inode.link:{}",inode.get_link());
+            }
+            ROOT_INODE.remove_name_from_dir(name);
+            inode.clear();
+        },
+        None => return -1,
+    }
+
+    0
+}
+
+#[allow(unused)]
+/// 打印 LINK_VEC 的内容
+pub fn print_link_vec() {
+    let link_vec = LINK_VEC.exclusive_access();
+    println!("LINK_VEC contains:");
+    // 遍历 LINK_VEC 中的每个 (Inode, u32) 元组
+    for (old, count) in link_vec.iter() {
+        println!("Old Inode: {:?}, Link Count: {}", old, count);
+    }
+}
+
+
+#[allow(unused)]
+/// 打印 VEC 的内容
+pub fn print_vec(vec: &Vec<u32>) {
+    println!("new_link_list contains:");
+    for data in vec.iter() {
+        println!("Inode_id: {}", data);
+    }
+}
+
 
 impl File for OSInode {
     fn readable(&self) -> bool {
@@ -154,5 +274,45 @@ impl File for OSInode {
             total_write_size += write_size;
         }
         total_write_size
+    }
+    fn fstat(&self) -> Option<Stat> {
+        let inner = self.inner.exclusive_access();
+        let inode_id = inner.inode.get_inode_num();
+
+        let mut link_num: u32 = 1;
+        print_link_vec();
+        println!("inner.inode.get_link():{}",inner.inode.get_link());
+        /* 
+        if !inner.inode.get_link() {
+            link_num = 1;
+        }else{
+            for (inode1,inode2) in link_list.iter(){
+                if inode1.get_inode_num() == inode_id
+                || inode2.get_inode_num() == inode_id{
+                    link_num += 1;
+                }
+            }
+        }*/
+        let link_list =  LINK_VEC.exclusive_access();
+        for (inode,count) in link_list.iter(){
+            let inode_num = inode.get_inode_num();
+            if inode_num == inode_id {
+                link_num = *count;
+            }
+        }
+
+
+        //let link = inner.inode.get_link();
+        let stat_mode = match inner.inode.is_dir() {
+            true => StatMode::DIR,
+            false => StatMode::FILE,
+        };
+        Some(Stat {
+            dev: 0,
+            ino: inode_id as u64,
+            mode: stat_mode,
+            nlink: link_num,
+            pad: [0; 7]
+        })
     }
 }

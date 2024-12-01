@@ -43,6 +43,39 @@ pub struct MemorySet {
 }
 
 impl MemorySet {
+    ///
+    pub fn overlaps_with_mapped_area(&self, start: VirtAddr, end: VirtAddr) -> bool {
+
+        // 遍历所有映射区域
+        for area in &self.areas {
+            // 获取当前映射区域的起始和结束 VPN
+            let area_start_vpn = area.vpn_range.get_start(); // 假设 l 为起始页
+            let area_end_vpn = area.vpn_range.get_end(); // 假设 r 为结束页
+            // 检查是否重叠
+            if (start.floor() < area_end_vpn) && (end.ceil() > area_start_vpn) {
+                return true; // 存在重叠
+            }
+        }
+        false // 不存在重叠
+    }
+
+    /// Assume that no conflicts.
+    pub fn del_framed_area(
+        &mut self,
+        start_va: VirtAddr,
+        end_va: VirtAddr
+    ) {
+        let vpn_start = start_va.floor();
+        let vpn_end = end_va.ceil();
+        let index = self.areas.iter_mut().position(|map| {
+            map.vpn_range.get_start() == vpn_start
+                && map.vpn_range.get_end() == vpn_end
+        });
+        if let Some(index) = index {
+            self.areas[index].unmap(&mut self.page_table);
+            self.areas.remove(index);
+        }
+    }
     /// Create a new empty `MemorySet`.
     pub fn new_bare() -> Self {
         Self {
